@@ -1,6 +1,6 @@
 {
 	"compiler": {
-		"version": "0.8.6+commit.11564f7e"
+		"version": "0.8.4+commit.c7e474f2"
 	},
 	"language": "Solidity",
 	"output": {
@@ -144,6 +144,13 @@
 					}
 				],
 				"stateMutability": "pure",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "claimAll",
+				"outputs": [],
+				"stateMutability": "nonpayable",
 				"type": "function"
 			},
 			{
@@ -617,7 +624,7 @@
 		"compilationTarget": {
 			"Marsmello.sol": "Marsmello"
 		},
-		"evmVersion": "berlin",
+		"evmVersion": "istanbul",
 		"libraries": {},
 		"metadata": {
 			"bytecodeHash": "ipfs"
@@ -662,11 +669,11 @@
 			]
 		},
 		"Marsmello.sol": {
-			"keccak256": "0x6cc8be1453d2fadb788610481a8a71e41ce19ae369ba9f89cfcacf69c37e19b5",
+			"keccak256": "0xc2ec48605f4f4caf11b635db5d1cb7de834595ba371f44fe5a3fdb6829bbd8de",
 			"license": "MIT",
 			"urls": [
-				"bzz-raw://55e7eba7b7c6944944880fb39cf569bea893db81ae0feaa12c36d0e50591ab7d",
-				"dweb:/ipfs/QmQFp9xtsRUkF6P8fM1qFSC3Fv9MJ4hji4xGkz5Qd5oJ3E"
+				"bzz-raw://cf2e3cd3228e7c976f4b265f68bd13678050337e4d7bbf42b2fe60b192668327",
+				"dweb:/ipfs/QmSdG1mCJfnCXnNXfXsBGW4FbjgvqekXZjfUFAR44XThom"
 			]
 		}
 	},
