@@ -2,14 +2,17 @@
 pragma solidity ^0.8.2;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Marsmello is ERC20 {
+interface ERC20I {
+    function mintTo(address to, uint256 amount) external returns (bool);
+}
+
+contract Marsmello is ERC20, Ownable {
     constructor() ERC20(m_name, m_symbol) {
         _mint(msg.sender, m_supply * 10**decimals());
         deploy_time = block.timestamp;
-        factories.push(
-            Factory("Void", address(this), 0, 0, 0, CoOrdinates(0, 0))
-        );
+        factories.push(Factory("Void", address(0), 0, 0, CoOrdinates(0, 0)));
     }
 
     string m_name = "MarsMello";
@@ -18,50 +21,53 @@ contract Marsmello is ERC20 {
     uint256 deploy_time;
     uint256 randomness = 12345678901234567890;
     uint256 land_price = 1000 * 10**decimals();
-    uint256 factory_price = 1000 * 10**decimals();
+    uint256 resources_count = 5;
 
     uint256 factory_count = 0;
     struct Land {
         address owner;
-        uint256 seed;
-        uint16[5] ores;
-        uint256 ontop;
+        uint128 seed;
+        uint128 ontop;
     }
     struct Factory {
         string name;
         address owner;
         uint64 ftype;
         uint64 efficiency;
-        uint256 lastclaimed;
         CoOrdinates placedon;
     }
     struct User {
-        uint256[] factories;
+        uint128[] factories;
         CoOrdinates[] lands;
+        uint128[] flows;
+        uint64 lastclaimed;
     }
     struct CoOrdinates {
-        int256 x;
-        int256 y;
+        int128 x;
+        int128 y;
     }
     struct Relay {
         address owner;
-        uint256 seed;
-        uint16[5] ores;
+        uint128 seed;
         Factory ontop;
     }
-    IERC20[5] private tokens = [
-        IERC20(0x110472D9B5661DC1d8BA8C637Dbde1f5a813cD8A),
-        IERC20(0x7155651d11C869f76BE988cf30BE3B856f29E905),
-        IERC20(0xe8D98e3331C0434D38FfB8041eF2EF233C41Cf70),
-        IERC20(0x38a3FD50BF7240988639D7DA8A0EcD91052AF1d1),
-        IERC20(0x8042A576cB35d83cbECE64e211BF0570F72e4Cfd)
-    ];
+    struct Resource {
+        uint128 id;
+        int128 rate;
+    }
+    struct Factory_type {
+        uint128 price;
+        Resource[] resources;
+        bool land_dependent;
+    }
+    address[] private tokens;
 
-    mapping(int256 => mapping(int256 => Land)) private lands;
+    mapping(int128 => mapping(int128 => Land)) private lands;
     Factory[] private factories;
+    Factory_type[] private factory_types;
     mapping(address => User) private users;
 
-    modifier landOwner(int256 x, int256 y) {
+    modifier landOwner(int128 x, int128 y) {
         require(
             lands[x][y].owner == msg.sender,
             "Land doesn't belong to you !"
@@ -76,76 +82,132 @@ contract Marsmello is ERC20 {
         _;
     }
 
+    function chechUser(address a) public {
+        while (users[a].flows.length < resources_count) {
+            users[a].flows.push(0);
+        }
+    }
+
     function getUserData(address user)
         public
         view
-        returns (uint256[] memory, CoOrdinates[] memory)
+        returns (
+            uint128[] memory,
+            CoOrdinates[] memory,
+            uint128[] memory,
+            uint64
+        )
     {
-        return (users[user].factories, users[user].lands);
+        return (
+            users[user].factories,
+            users[user].lands,
+            users[user].flows,
+            users[user].lastclaimed
+        );
     }
 
     function getLandPrice() public view returns (uint256) {
         return (land_price);
     }
 
-    function mintFactory(string memory name, uint8 ftype) public {
+    function getRandomNumber(uint256 rand) public view returns (uint128) {
+        return
+            uint128(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(blockhash(block.number - 1), rand)
+                    )
+                )
+            );
+    }
+
+    function addFactoryType(
+        uint128 price,
+        bool land_dependent,
+        uint128[] calldata r1,
+        int128[] calldata r2
+    ) public onlyOwner returns (uint256) {
+        require(r1.length == r2.length, "Array length mismatch!");
+        factory_types.push();
+        uint256 id = factory_types.length - 1;
+        factory_types[id].price = price;
+        factory_types[id].land_dependent = land_dependent;
+        for (uint256 i = 0; i < r1.length; i++) {
+            factory_types[id].resources.push(Resource(r1[i], r2[i]));
+        }
+        return id;
+    }
+
+    function deletefactoryType() public onlyOwner {
+        factory_types.pop();
+    }
+
+    function getFactoryType() public view returns (Factory_type[] memory) {
+        return factory_types;
+    }
+
+    function addResource(address token_address)
+        public
+        onlyOwner
+        returns (uint256)
+    {
+        tokens.push(token_address);
+        return (tokens.length - 1);
+    }
+
+    function editResource(uint256 id, address token_address) public onlyOwner {
+        tokens[id] = token_address;
+    }
+
+    function deleteResource() public onlyOwner {
+        tokens.pop();
+    }
+
+    function getResource() public view returns (address[] memory) {
+        return tokens;
+    }
+
+    function mintFactory(string calldata name, uint8 ftype) public {
         require(
-            balanceOf(msg.sender) >= factory_price,
+            balanceOf(msg.sender) >= factory_types[ftype].price,
             "Not enough MLO in your wallet to buy land !"
         );
-        uint256 seed = uint256(
-            keccak256(
-                abi.encodePacked(
-                    randomness,
-                    blockhash(block.number - 1),
-                    factories.length
-                )
-            )
-        );
+        chechUser(msg.sender);
+        uint128 seed = getRandomNumber(factories.length);
         factories.push(
             Factory(
                 name,
                 msg.sender,
                 ftype,
-                uint64(51 + (seed % 50)),
-                0,
+                uint64(50 + (seed % 51)),
                 CoOrdinates(0, 0)
             )
         );
-        _transfer(msg.sender, address(this), factory_price);
-        users[msg.sender].factories.push(factories.length - 1);
+        _transfer(msg.sender, address(this), factory_types[ftype].price);
+        users[msg.sender].factories.push(uint64(factories.length - 1));
     }
 
-    function calcOreDist(uint256 seed) public pure returns (uint16[5] memory) {
-        return [
-            uint16(15 + (seed % 13)),
-            uint16(5 + (seed % 11)),
-            uint16(5 + (seed % 7)),
-            uint16(3 + (seed % 5)),
-            uint16(seed % 5)
-        ];
+    function getLandRate(uint128 seed, uint64 ftype)
+        public
+        view
+        returns (uint128)
+    {
+        if (factory_types[ftype].land_dependent == false) return 100;
+        return uint128(50 + ((seed / (10**(ftype % 35))) % 51));
     }
 
-    function mintLand(int256 x, int256 y) public {
+    function mintLand(int32 x, int32 y) public {
         require(x != 0 || y != 0, "Can't buy spawn !");
-        require(x < 1000000000 || y != 0, "Can't buy spawn !");
-        require(lands[x][y].owner == address(0x0), "Land already exists !");
+        require(lands[x][y].owner == address(0), "Land already exists !");
         require(
             balanceOf(msg.sender) >= land_price,
             "Not enough MLO in your wallet to buy land !"
         );
+        chechUser(msg.sender);
         _transfer(msg.sender, address(this), land_price);
         land_price += land_price / 100;
-        uint256 seed = uint256(
-            keccak256(
-                abi.encodePacked(
-                    randomness,
-                    blockhash(block.number - 1),
-                    land_price
-                )
-            )
-        );
-        lands[x][y] = Land(msg.sender, seed, calcOreDist(seed), 0);
+        uint128 seed = getRandomNumber(land_price);
+        lands[x][y] = Land(msg.sender, seed, 0);
         users[msg.sender].lands.push(CoOrdinates(x, y));
     }
 
@@ -154,29 +216,51 @@ contract Marsmello is ERC20 {
     }
 
     function _clearFactory(uint256 id) private {
-        if (id != 0) {
+        if (
+            id != 0 &&
+            (factories[id].placedon.x != 0 || factories[id].placedon.y != 0)
+        ) {
             factories[id].placedon = CoOrdinates(0, 0);
-            factories[id].lastclaimed = 0;
         }
     }
 
     function placeFactory(
-        uint256 factory_id,
-        int256 x,
-        int256 y
+        uint64 factory_id,
+        int128 x,
+        int128 y
     ) public landOwner(x, y) factoryOwner(factory_id) {
+        claimAll();
         _clearFactory(lands[x][y].ontop);
         _clearLand(factories[factory_id].placedon);
 
         lands[x][y].ontop = factory_id;
-        factories[factory_id].placedon = CoOrdinates(x, y);
-        factories[factory_id].lastclaimed = block.timestamp;
+        Factory storage f = factories[factory_id];
+        f.placedon = CoOrdinates(x, y);
+        for (uint256 i = 0; i < factory_types[f.ftype].resources.length; i++) {
+            Resource memory r = factory_types[f.ftype].resources[i];
+            if (r.rate < 0) {
+                require(
+                    users[msg.sender].flows[r.id] >
+                        uint128(-1 * r.rate) * uint128(f.efficiency),
+                    "Not enough resource stream to place factory !"
+                );
+                users[msg.sender].flows[r.id] -=
+                    uint128(-1 * r.rate) *
+                    uint128(f.efficiency);
+            } else {
+                users[msg.sender].flows[r.id] +=
+                    (uint128(r.rate) *
+                        uint128(f.efficiency) *
+                        getLandRate(lands[x][y].seed, f.ftype)) /
+                    100;
+            }
+        }
     }
 
     function transferLand(
         address to,
-        int256 x,
-        int256 y
+        int128 x,
+        int128 y
     ) public landOwner(x, y) {
         _clearFactory(lands[x][y].ontop);
         _clearLand(CoOrdinates(x, y));
@@ -193,7 +277,7 @@ contract Marsmello is ERC20 {
         users[to].lands.push(CoOrdinates(x, y));
     }
 
-    function transferFactory(address to, uint256 factory_id)
+    function transferFactory(address to, uint64 factory_id)
         public
         factoryOwner(factory_id)
     {
@@ -211,44 +295,29 @@ contract Marsmello is ERC20 {
     }
 
     function claimAll() public {
-        uint256[5] memory amounts;
-        uint64 t;
-        for (uint256 i = 0; i < users[msg.sender].factories.length; i++) {
-            Factory storage f = factories[users[msg.sender].factories[i]];
-            if (f.placedon.x != 0 || f.placedon.y != 0) {
-                t = f.ftype % 10;
-                if (t > 0) {
-                    t--;
-                    amounts[t] +=
-                        (lands[f.placedon.x][f.placedon.y].ores[t] *
-                            f.efficiency *
-                            10**18) /
-                        36;
-                }
-            }
+        uint128[] memory amounts = users[msg.sender].flows;
+        uint128 t = uint128(block.timestamp) - users[msg.sender].lastclaimed;
+        if (t > 86400) t = 86400;
+        for (uint256 i = 0; i < amounts.length; i++) {
+            amounts[i] *= t;
         }
-        for (uint256 i = 0; i < 5; i++) {
+        for (uint256 i = 0; i < amounts.length; i++) {
             if (amounts[i] > 0)
-                require(tokens[i].transfer(msg.sender, amounts[i]));
+                require(ERC20I(tokens[i]).mintTo(msg.sender, amounts[i]));
         }
-        for (uint256 i = 0; i < users[msg.sender].factories.length; i++) {
-            Factory storage f = factories[users[msg.sender].factories[i]];
-            if (f.placedon.x != 0 || f.placedon.y != 0) {
-                f.lastclaimed = block.timestamp;
-            }
-        }
+        users[msg.sender].lastclaimed = uint64(block.timestamp);
     }
 
-    function getArea(int256 x, int256 y)
+    function getArea(int128 x, int128 y)
         public
         view
         returns (Relay[41][41] memory)
     {
         Relay[41][41] memory r;
-        for (uint256 i = 0; i < 41; i++) {
-            for (uint256 j = 0; j < 41; j++) {
-                Land memory l = lands[x - 20 + int256(i)][y - 20 + int256(j)];
-                r[i][j] = Relay(l.owner, l.seed, l.ores, factories[l.ontop]);
+        for (uint128 i = 0; i < 41; i++) {
+            for (uint128 j = 0; j < 41; j++) {
+                Land memory l = lands[x - 20 + int128(i)][y - 20 + int128(j)];
+                r[i][j] = Relay(l.owner, l.seed, factories[l.ontop]);
             }
         }
         return r;
